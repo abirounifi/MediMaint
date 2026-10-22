@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MediMaint — Alertes</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav>
+  <div class="logo">🏥 Medi<span>Maint</span></div>
+  <ul>
+    <li><a href="index.html">Dashboard</a></li>
+    <li><a href="equipements.html">Équipements</a></li>
+    <li><a href="alertes.html" class="active">Alertes</a></li>
+  </ul>
+</nav>
+
+<div class="container">
+  <div class="page-header">
+    <p class="page-title">Alertes & Maintenances urgentes</p>
+  </div>
+  <div id="liste-alertes"></div>
+</div>
+
+<script src="data.js"></script>
+<script src="prediction.js"></script>
+<script>
+  const conteneur = document.getElementById("liste-alertes");
+  let htmlAnomal="", htmlUrgent="", nbAnomal=0, nbUrgent=0;
+
+  hopital.services.forEach(service => {
+    service.equipements.forEach(eq => {
+      const j = joursRestants(eq.derniere_maintenance, eq.frequence_maintenance);
+      const estAnomal = eq.statut==="Alerte"||eq.statut==="Critique";
+      const estUrgent = !estAnomal && j<=30;
+      const prochaine = calculerProchaineMaintenance(eq.derniere_maintenance, eq.frequence_maintenance).toLocaleDateString("fr-FR");
+      const score = calculerScoreRisque(eq.pannes);
+      const risque = interpreterScore(score);
+
+      if(estAnomal) {
+        nbAnomal++;
+        const cls = eq.statut==="Critique"?"critique":"";
+        const msgJ = j<=0
+          ? `<strong style="color:#ef4444">En retard de ${Math.abs(j)} jour(s) !</strong>`
+          : `Dans <strong>${j} jour(s)</strong> (${prochaine})`;
+        htmlAnomal += `
+          <div class="alerte-item ${cls}" onclick="window.location='fiche.html?id=${eq.id}&service=${service.id}'">
+            <div>
+              <h4>${eq.nom} <span class="badge ${eq.statut==="Critique"?"critique":"alerte"}" style="margin-left:8px">${eq.statut}</span></h4>
+              <p>Service : ${service.nom} — Chef : ${service.chef}</p>
+              <p style="margin-top:6px">Prochaine maintenance : ${msgJ}</p>
+              <p style="margin-top:4px">Risque : <strong style="color:${risque.couleur}">${risque.label} (${score}/100)</strong></p>
+            </div>
+            <button class="btn">Voir la fiche</button>
+          </div>`;
+      }
+
+      if(estUrgent) {
+        nbUrgent++;
+        const jColor = j<=7?"#ef4444":"#f59e0b";
+        htmlUrgent += `
+          <div class="alerte-item preventif" onclick="window.location='fiche.html?id=${eq.id}&service=${service.id}'">
+            <div>
+              <h4>${eq.nom}</h4>
+              <p>Service : ${service.nom} — Chef : ${service.chef}</p>
+              <p style="margin-top:6px">Maintenance prévue le <strong>${prochaine}</strong></p>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:12px;color:#64748b;margin-bottom:4px">Dans</div>
+              <div style="font-size:22px;font-weight:700;color:${jColor}">${j}j</div>
+            </div>
+          </div>`;
+      }
+    });
+  });
+
+  if(nbAnomal===0 && nbUrgent===0) {
+    conteneur.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">✅</div>
+        <p>Aucune alerte en cours. Tous les équipements sont opérationnels.</p>
+      </div>`;
+  } else {
+    let html = "";
+    if(nbAnomal>0) html += `<p class="section-label" style="margin-top:0">Équipements en anomalie (${nbAnomal})</p>${htmlAnomal}`;
+    if(nbUrgent>0) html += `<p class="section-label">Maintenances à planifier — 30 jours (${nbUrgent})</p>${htmlUrgent}`;
+    conteneur.innerHTML = html;
+  }
+</script>
+</body>
+</html>

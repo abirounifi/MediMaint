@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MediMaint — Équipements</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav>
+  <div class="logo">🏥 Medi<span>Maint</span></div>
+  <ul>
+    <li><a href="index.html">Dashboard</a></li>
+    <li><a href="equipements.html" class="active">Équipements</a></li>
+    <li><a href="alertes.html">Alertes</a></li>
+  </ul>
+</nav>
+
+<!-- MODAL AJOUT ÉQUIPEMENT -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <h2>➕ Ajouter un équipement</h2>
+    <p id="modal-service-nom" style="font-size:13px;color:#64748b;margin-bottom:20px;"></p>
+
+    <div class="form-group">
+      <label>Nom de l'équipement</label>
+      <input type="text" id="input-nom" placeholder="Ex: Moniteur de signes vitaux">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Date d'achat</label>
+        <input type="date" id="input-date-achat">
+      </div>
+      <div class="form-group">
+        <label>Fréquence maintenance (jours)</label>
+        <input type="number" id="input-frequence" placeholder="Ex: 90" min="1">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Dernière maintenance</label>
+      <input type="date" id="input-derniere-maintenance">
+    </div>
+    <div class="form-group">
+      <label>Statut initial</label>
+      <select id="input-statut">
+        <option value="Opérationnel">Opérationnel</option>
+        <option value="Alerte">Alerte</option>
+        <option value="Critique">Critique</option>
+      </select>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-outline" onclick="fermerModal()">Annuler</button>
+      <button class="btn-success" onclick="ajouterEquipement()">✅ Ajouter</button>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  <div class="page-header">
+    <p class="page-title" id="titre-page">Tous les services</p>
+    <button class="btn" id="btn-ajouter" style="display:none" onclick="ouvrirModal()">➕ Ajouter un équipement</button>
+  </div>
+
+  <div class="search-wrapper">
+    <span class="search-icon">🔍</span>
+    <input type="text" id="recherche" placeholder="Rechercher un équipement, service ou chef...">
+  </div>
+  <p class="search-results-info" id="info-recherche"></p>
+  <div id="resultats-recherche" style="display:none; margin-bottom:20px;"></div>
+
+  <div id="vue-services" class="services-grid"></div>
+
+  <div id="vue-equipements" style="display:none">
+    <button class="btn-outline" onclick="retourServices()" style="margin-bottom:20px">← Retour aux services</button>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th><th>Équipement</th><th>Dernière maint.</th>
+            <th>Prochaine maint.</th><th>Jours restants</th><th>Statut</th><th>Détails</th>
+          </tr>
+        </thead>
+        <tbody id="tableau-equipements"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script src="prediction.js"></script>
+<script>
+  const vueServices    = document.getElementById("vue-services");
+  const vueEquipements = document.getElementById("vue-equipements");
+  const titrage        = document.getElementById("titre-page");
+  const btnAjouter     = document.getElementById("btn-ajouter");
+  let serviceActuel    = null;
+
+  function afficherServices() {
+    vueServices.innerHTML = "";
+    hopital.services.forEach(service => {
+      const nb = service.equipements.filter(e => e.statut==="Alerte"||e.statut==="Critique").length;
+      vueServices.innerHTML += `
+        <div class="service-card" onclick="afficherEquipements(${service.id})">
+          <h3>${service.nom}</h3>
+          <p class="meta">👨‍⚕️ ${service.chef}</p>
+          <p class="meta">🔧 ${service.equipements.length} équipements</p>
+          <p class="meta">⚠️ ${nb} alerte(s)</p>
+        </div>`;
+    });
+  }
+
+  afficherServices();
+
+  function afficherEquipements(serviceId) {
+    serviceActuel = hopital.services.find(s => s.id === serviceId);
+    titrage.textContent = "Service : " + serviceActuel.nom;
+    document.getElementById("modal-service-nom").textContent = "Service : " + serviceActuel.nom;
+    btnAjouter.style.display = "block";
+
+    const tbody = document.getElementById("tableau-equipements");
+    tbody.innerHTML = "";
+
+    serviceActuel.equipements.forEach(eq => {
+      const j = joursRestants(eq.derniere_maintenance, eq.frequence_maintenance);
+      const p = calculerProchaineMaintenance(eq.derniere_maintenance, eq.frequence_maintenance).toLocaleDateString("fr-FR");
+      const js = j<=7?'style="color:#ef4444;font-weight:700"':j<=30?'style="color:#f59e0b;font-weight:700"':'';
+      const bc = eq.statut==="Opérationnel"?"operationnel":eq.statut==="Alerte"?"alerte":"critique";
+
+      tbody.innerHTML += `
+        <tr onclick="window.location='fiche.html?id=${eq.id}&service=${serviceId}'">
+          <td>${eq.id}</td>
+          <td><strong>${eq.nom}</strong></td>
+          <td>${eq.derniere_maintenance}</td>
+          <td>${p}</td>
+          <td ${js}>${j} jours</td>
+          <td><span class="badge ${bc}">${eq.statut}</span></td>
+          <td>
+            <button class="btn" onclick="event.stopPropagation();window.location='fiche.html?id=${eq.id}&service=${serviceId}'">Voir</button>
+          </td>
+        </tr>`;
+    });
+
+    vueServices.style.display    = "none";
+    vueEquipements.style.display = "block";
+    document.getElementById("recherche").style.display = "none";
+    document.getElementById("info-recherche").style.display = "none";
+  }
+
+  function retourServices() {
+    titrage.textContent = "Tous les services";
+    serviceActuel = null;
+    btnAjouter.style.display = "none";
+    vueServices.style.display    = "grid";
+    vueEquipements.style.display = "none";
+    document.getElementById("recherche").style.display = "block";
+    document.getElementById("info-recherche").style.display = "block";
+    afficherServices();
+  }
+
+  // ── MODAL ──────────────────────────────────────────────────────────────────
+  function ouvrirModal() {
+    document.getElementById("modal-overlay").classList.add("open");
+    const today = new Date().toISOString().split("T")[0];
+    document.getElementById("input-date-achat").value = today;
+    document.getElementById("input-derniere-maintenance").value = today;
+  }
+
+  function fermerModal() {
+    document.getElementById("modal-overlay").classList.remove("open");
+    document.getElementById("input-nom").value = "";
+    document.getElementById("input-frequence").value = "";
+  }
+
+  function ajouterEquipement() {
+    const nom      = document.getElementById("input-nom").value.trim();
+    const dateAchat = document.getElementById("input-date-achat").value;
+    const freq     = parseInt(document.getElementById("input-frequence").value);
+    const derniere = document.getElementById("input-derniere-maintenance").value;
+    const statut   = document.getElementById("input-statut").value;
+
+    if (!nom || !dateAchat || !freq || !derniere) {
+      alert("⚠️ Veuillez remplir tous les champs.");
+      return;
+    }
+
+    const nouvelEq = {
+      id: genererNouvelId(),
+      nom, date_achat: dateAchat,
+      frequence_maintenance: freq,
+      derniere_maintenance: derniere,
+      statut, pannes: []
+    };
+
+    serviceActuel.equipements.push(nouvelEq);
+    sauvegarderDonnees();
+    fermerModal();
+    afficherEquipements(serviceActuel.id);
+  }
+
+  document.getElementById("modal-overlay").addEventListener("click", function(e) {
+    if(e.target === this) fermerModal();
+  });
+
+  // ── RECHERCHE ──────────────────────────────────────────────────────────────
+  const input = document.getElementById("recherche");
+  const resultatsDiv = document.getElementById("resultats-recherche");
+  const infoRecherche = document.getElementById("info-recherche");
+
+  input.addEventListener("input", function() {
+    const q = this.value.trim().toLowerCase();
+    if(q.length < 2) {
+      resultatsDiv.style.display = "none";
+      vueServices.style.display  = "grid";
+      infoRecherche.textContent  = "";
+      return;
+    }
+    const resultats = [];
+    hopital.services.forEach(service => {
+      service.equipements.forEach(eq => {
+        if(eq.nom.toLowerCase().includes(q) ||
+           service.nom.toLowerCase().includes(q) ||
+           service.chef.toLowerCase().includes(q))
+          resultats.push({eq, service});
+      });
+    });
+    infoRecherche.textContent = `${resultats.length} résultat(s) pour "${this.value}"`;
+    if(resultats.length===0) {
+      resultatsDiv.innerHTML = `<div class="no-result">Aucun résultat pour "<strong>${this.value}</strong>"</div>`;
+    } else {
+      let html = `<div class="table-wrapper"><table>
+        <thead><tr>
+          <th>Équipement</th><th>Service</th><th>Chef</th>
+          <th>Prochaine maint.</th><th>Jours restants</th><th>Statut</th><th></th>
+        </tr></thead><tbody>`;
+      resultats.forEach(({eq, service}) => {
+        const j = joursRestants(eq.derniere_maintenance, eq.frequence_maintenance);
+        const p = calculerProchaineMaintenance(eq.derniere_maintenance, eq.frequence_maintenance).toLocaleDateString("fr-FR");
+        const js = j<=7?'style="color:#ef4444;font-weight:700"':j<=30?'style="color:#f59e0b;font-weight:700"':'';
+        const bc = eq.statut==="Opérationnel"?"operationnel":eq.statut==="Alerte"?"alerte":"critique";
+        html += `<tr onclick="window.location='fiche.html?id=${eq.id}&service=${service.id}'">
+          <td><strong>${eq.nom}</strong></td><td>${service.nom}</td><td>${service.chef}</td>
+          <td>${p}</td><td ${js}>${j} jours</td>
+          <td><span class="badge ${bc}">${eq.statut}</span></td>
+          <td><button class="btn" onclick="event.stopPropagation();window.location='fiche.html?id=${eq.id}&service=${service.id}'">Voir</button></td>
+        </tr>`;
+      });
+      html += `</tbody></table></div>`;
+      resultatsDiv.innerHTML = html;
+    }
+    resultatsDiv.style.display = "block";
+    vueServices.style.display  = "none";
+  });
+
+  const params = new URLSearchParams(window.location.search);
+  const serviceId = params.get("service");
+  if(serviceId) afficherEquipements(parseInt(serviceId));
+</script>
+</body>
+</html>

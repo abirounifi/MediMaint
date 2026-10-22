@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MediMaint — Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav>
+  <div class="logo">🏥 Medi<span>Maint</span></div>
+  <ul>
+    <li><a href="index.html" class="active">Dashboard</a></li>
+    <li><a href="equipements.html">Équipements</a></li>
+    <li><a href="alertes.html">Alertes</a></li>
+  </ul>
+</nav>
+
+<div class="container">
+
+  <div class="page-header">
+    <div>
+      <p class="page-title">Tableau de bord</p>
+      <p class="page-subtitle" id="nom-hopital"></p>
+    </div>
+  </div>
+
+  <div class="search-wrapper">
+    <span class="search-icon">🔍</span>
+    <input type="text" id="recherche" placeholder="Rechercher un équipement, service ou chef de service...">
+  </div>
+  <p class="search-results-info" id="info-recherche"></p>
+  <div id="resultats-recherche" style="display:none; margin-bottom:24px;"></div>
+
+  <div id="contenu-normal">
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#eff6ff">🏥</div>
+        <div><div class="number" id="total-equipements" style="color:#2563eb">0</div><div class="label">Total équipements</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#d1fae5">✅</div>
+        <div><div class="number" id="total-operationnels" style="color:#10b981">0</div><div class="label">Opérationnels</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#fef3c7">⚠️</div>
+        <div><div class="number" id="total-alertes" style="color:#f59e0b">0</div><div class="label">En alerte</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#fee2e2">🔴</div>
+        <div><div class="number" id="total-critiques" style="color:#ef4444">0</div><div class="label">Critiques</div></div>
+      </div>
+    </div>
+
+    <div class="table-wrapper">
+      <div class="table-header"><h3>État par service</h3></div>
+      <table>
+        <thead>
+          <tr>
+            <th>Service</th><th>Chef de service</th>
+            <th>Équipements</th><th>Alertes</th><th>État général</th>
+          </tr>
+        </thead>
+        <tbody id="tableau-services"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script src="prediction.js"></script>
+<script>
+  document.getElementById("nom-hopital").textContent = hopital.nom;
+
+  let total=0, operationnels=0, alertes=0, critiques=0;
+  hopital.services.forEach(s => s.equipements.forEach(eq => {
+    total++;
+    if(eq.statut==="Opérationnel") operationnels++;
+    if(eq.statut==="Alerte") alertes++;
+    if(eq.statut==="Critique") critiques++;
+  }));
+
+  document.getElementById("total-equipements").textContent  = total;
+  document.getElementById("total-operationnels").textContent = operationnels;
+  document.getElementById("total-alertes").textContent      = alertes;
+  document.getElementById("total-critiques").textContent    = critiques;
+
+  const tbody = document.getElementById("tableau-services");
+  hopital.services.forEach(service => {
+    const nb = service.equipements.filter(e => e.statut==="Alerte"||e.statut==="Critique").length;
+    const etat = nb===0
+      ? '<span class="badge operationnel">✅ Normal</span>'
+      : nb===1 ? '<span class="badge alerte">⚠️ Attention</span>'
+      : '<span class="badge critique">🔴 Critique</span>';
+    tbody.innerHTML += `
+      <tr onclick="window.location='equipements.html?service=${service.id}'">
+        <td><strong>${service.nom}</strong></td>
+        <td>${service.chef}</td>
+        <td>${service.equipements.length}</td>
+        <td>${nb}</td>
+        <td>${etat}</td>
+      </tr>`;
+  });
+
+  const input = document.getElementById("recherche");
+  const resultatsDiv = document.getElementById("resultats-recherche");
+  const contenuNormal = document.getElementById("contenu-normal");
+  const infoRecherche = document.getElementById("info-recherche");
+
+  input.addEventListener("input", function() {
+    const q = this.value.trim().toLowerCase();
+    if(q.length < 2) {
+      resultatsDiv.style.display = "none";
+      contenuNormal.style.display = "block";
+      infoRecherche.textContent = "";
+      return;
+    }
+    const resultats = [];
+    hopital.services.forEach(service => {
+      service.equipements.forEach(eq => {
+        if(eq.nom.toLowerCase().includes(q) ||
+           service.nom.toLowerCase().includes(q) ||
+           service.chef.toLowerCase().includes(q))
+          resultats.push({eq, service});
+      });
+    });
+    infoRecherche.textContent = `${resultats.length} résultat(s) pour "${this.value}"`;
+    if(resultats.length===0) {
+      resultatsDiv.innerHTML = `<div class="no-result">Aucun résultat pour "<strong>${this.value}</strong>"</div>`;
+    } else {
+      let html = `<div class="table-wrapper"><div class="table-header"><h3>Résultats</h3></div>
+        <table><thead><tr>
+          <th>Équipement</th><th>Service</th><th>Chef</th>
+          <th>Prochaine maint.</th><th>Jours restants</th><th>Statut</th>
+        </tr></thead><tbody>`;
+      resultats.forEach(({eq, service}) => {
+        const j = joursRestants(eq.derniere_maintenance, eq.frequence_maintenance);
+        const p = calculerProchaineMaintenance(eq.derniere_maintenance, eq.frequence_maintenance).toLocaleDateString("fr-FR");
+        const js = j<=7?'style="color:#ef4444;font-weight:700"':j<=30?'style="color:#f59e0b;font-weight:700"':'';
+        const bc = eq.statut==="Opérationnel"?"operationnel":eq.statut==="Alerte"?"alerte":"critique";
+        html += `<tr onclick="window.location='fiche.html?id=${eq.id}&service=${service.id}'">
+          <td><strong>${eq.nom}</strong></td><td>${service.nom}</td><td>${service.chef}</td>
+          <td>${p}</td><td ${js}>${j} jours</td>
+          <td><span class="badge ${bc}">${eq.statut}</span></td>
+        </tr>`;
+      });
+      html += `</tbody></table></div>`;
+      resultatsDiv.innerHTML = html;
+    }
+    resultatsDiv.style.display = "block";
+    contenuNormal.style.display = "none";
+  });
+</script>
+</body>
+</html>

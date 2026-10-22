@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MediMaint — Fiche équipement</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav>
+  <div class="logo">🏥 Medi<span>Maint</span></div>
+  <ul>
+    <li><a href="index.html">Dashboard</a></li>
+    <li><a href="equipements.html">Équipements</a></li>
+    <li><a href="alertes.html">Alertes</a></li>
+  </ul>
+</nav>
+
+<div class="container">
+  <button class="btn-outline" onclick="history.back()" style="margin-bottom:24px">← Retour</button>
+  <div id="contenu-fiche"></div>
+</div>
+
+<script src="data.js"></script>
+<script src="prediction.js"></script>
+<script src="notifications.js"></script>
+<script>
+const params = new URLSearchParams(window.location.search);
+const eqId = parseInt(params.get("id"));
+const serviceId = parseInt(params.get("service"));
+const service = hopital.services.find(s => s.id === serviceId);
+const eq = service ? service.equipements.find(e => e.id === eqId) : null;
+
+if (!eq || !service) {
+  document.getElementById("contenu-fiche").innerHTML = "<p style='color:red'>Équipement introuvable.</p>";
+} else {
+  const j = joursRestants(eq.derniere_maintenance, eq.frequence_maintenance);
+  const prochaine = calculerProchaineMaintenance(eq.derniere_maintenance, eq.frequence_maintenance).toLocaleDateString("fr-FR");
+  const score = calculerScoreRisque(eq.pannes);
+  const risque = interpreterScore(score);
+  const age = Math.floor((new Date() - new Date(eq.date_achat)) / 31536000000);
+
+  const bc = eq.statut === "Opérationnel" ? "operationnel" : eq.statut === "Alerte" ? "alerte" : "critique";
+  const jColor = j <= 7 ? "color:#ef4444;font-weight:700" : j <= 30 ? "color:#f59e0b;font-weight:700" : "color:#10b981;font-weight:700";
+
+  const nbPalliative     = eq.pannes.filter(p => p.type === "Palliative").length;
+  const nbCurative       = eq.pannes.filter(p => p.type === "Curative").length;
+  const nbSystematique   = eq.pannes.filter(p => p.type === "Systématique").length;
+  const nbConditionnelle = eq.pannes.filter(p => p.type === "Conditionnelle").length;
+  const nbPrevisionnelle = eq.pannes.filter(p => p.type === "Prévisionnelle").length;
+
+  const pannesHtml = eq.pannes.length === 0
+    ? `<div class="empty-state" style="padding:32px">
+         <div class="icon" style="font-size:32px">✅</div>
+         <p style="font-size:14px">Aucune panne enregistrée</p>
+       </div>`
+    : [...eq.pannes].reverse().map(p => {
+        const typeCls = p.type === "Palliative" ? "palliative"
+          : p.type === "Curative" ? "curative"
+          : p.type === "Systématique" ? "systematique"
+          : p.type === "Conditionnelle" ? "conditionnelle"
+          : "previsionnelle";
+        return `
+          <div class="panne-item">
+            <div class="panne-header">
+              <span class="panne-date">📅 ${p.date}</span>
+              <span class="badge ${typeCls}">${p.type}</span>
+            </div>
+            <p class="panne-description">🔧 ${p.description}</p>
+            <div class="panne-solution">${p.solution}</div>
+          </div>`;
+      }).join("");
+
+  document.getElementById("contenu-fiche").innerHTML = `
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:28px;flex-wrap:wrap">
+      <p class="page-title" style="margin:0">${eq.nom}</p>
+      <span class="badge ${bc}">${eq.statut}</span>
+    </div>
+
+    <!-- INFOS GÉNÉRALES -->
+    <div class="fiche-card">
+      <p class="section-title">Informations générales</p>
+      <div class="info-grid">
+        <div class="info-item"><label>Service</label><span>${service.nom}</span></div>
+        <div class="info-item"><label>Chef de service</label><span>${service.chef}</span></div>
+        <div class="info-item"><label>Date d'achat</label><span>${eq.date_achat}</span></div>
+        <div class="info-item"><label>Âge de l'appareil</label><span>${age} an(s)</span></div>
+        <div class="info-item"><label>Dernière maintenance</label><span>${eq.derniere_maintenance}</span></div>
+        <div class="info-item"><label>Prochaine maintenance</label><span>${prochaine}</span></div>
+        <div class="info-item"><label>Fréquence</label><span>Tous les ${eq.frequence_maintenance} jours</span></div>
+        <div class="info-item"><label>Jours restants</label>
+          <span style="${jColor}">${j <= 0 ? "En retard de " + Math.abs(j) + " jour(s)" : j + " jour(s)"}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- PRÉDICTION -->
+    <div class="fiche-card">
+      <p class="section-title">Prédiction de panne & Type de maintenance recommandé</p>
+
+      <!-- Score de risque -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:14px;color:#64748b">Score de risque</span>
+        <span style="font-size:15px;font-weight:700;color:${risque.couleur}">${risque.label} — ${score}/100</span>
+      </div>
+      <div class="risk-bar">
+        <div class="risk-fill" style="width:${score}%;background:${risque.couleur}"></div>
+      </div>
+
+      <!-- Type recommandé — rempli par JS après -->
+      <div id="type-maintenance-box" style="margin-top:20px;padding:16px;border-radius:12px;border:2px solid #e2e8f0;background:#f8fafc">
+        <p style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:10px">
+          ✅ Type de maintenance recommandé
+        </p>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="font-size:28px" id="maint-icon"></span>
+          <div>
+            <span class="badge" id="maint-badge" style="font-size:13px;padding:6px 16px;margin-bottom:6px;display:inline-flex"></span>
+            <p style="font-size:13px;color:#475569;margin-top:4px" id="maint-desc"></p>
+          </div>
+        </div>
+      </div>
+
+      <!-- CORRECTIVE -->
+      <p style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.6px;margin:20px 0 8px">Maintenance Corrective</p>
+      <div style="display:flex;gap:10px;margin-bottom:14px">
+        <div style="flex:1;background:#fee2e2;border-radius:12px;padding:14px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:#b91c1c">${nbPalliative}</div>
+          <div style="font-size:11px;color:#b91c1c;font-weight:600;margin-top:2px">Palliative</div>
+        </div>
+        <div style="flex:1;background:#fecaca;border-radius:12px;padding:14px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:#991b1b">${nbCurative}</div>
+          <div style="font-size:11px;color:#991b1b;font-weight:600;margin-top:2px">Curative</div>
+        </div>
+      </div>
+
+      <!-- PRÉVENTIVE -->
+      <p style="font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px">Maintenance Préventive</p>
+      <div style="display:flex;gap:10px">
+        <div style="flex:1;background:#dbeafe;border-radius:12px;padding:14px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:#1d4ed8">${nbSystematique}</div>
+          <div style="font-size:11px;color:#1d4ed8;font-weight:600;margin-top:2px">Systématique</div>
+        </div>
+        <div style="flex:1;background:#fef3c7;border-radius:12px;padding:14px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:#92400e">${nbConditionnelle}</div>
+          <div style="font-size:11px;color:#92400e;font-weight:600;margin-top:2px">Conditionnelle</div>
+        </div>
+        <div style="flex:1;background:#d1fae5;border-radius:12px;padding:14px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:#065f46">${nbPrevisionnelle}</div>
+          <div style="font-size:11px;color:#065f46;font-weight:600;margin-top:2px">Prévisionnelle</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- HISTORIQUE PANNES -->
+    <div class="fiche-card">
+      <p class="section-title">Historique des pannes & solutions (${eq.pannes.length})</p>
+      ${pannesHtml}
+    </div>
+  `;
+
+  // ── Remplir le bloc type de maintenance recommandé ──────────────────────
+  const typeRec = recommanderTypeMaintenance(eq);
+  document.getElementById("maint-icon").textContent = typeRec.icon;
+
+  const badgeEl = document.getElementById("maint-badge");
+  badgeEl.textContent = typeRec.label;
+  badgeEl.classList.add(typeRec.badge);
+
+  document.getElementById("maint-desc").textContent = typeRec.desc;
+
+  const bgColors = {
+    curative:      "#fee2e2",
+    palliative:    "#fecaca",
+    conditionnelle:"#fef3c7",
+    systematique:  "#dbeafe",
+    previsionnelle:"#d1fae5"
+  };
+  const borderColors = {
+    curative:      "#fca5a5",
+    palliative:    "#f87171",
+    conditionnelle:"#fcd34d",
+    systematique:  "#93c5fd",
+    previsionnelle:"#6ee7b7"
+  };
+  const box = document.getElementById("type-maintenance-box");
+  box.style.background   = bgColors[typeRec.badge]   || "#f8fafc";
+  box.style.borderColor  = borderColors[typeRec.badge] || "#e2e8f0";
+}
+</script>
+</body>
+</html>
